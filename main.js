@@ -6,7 +6,7 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const errorDisplay = document.getElementById('error-display');
 
 let model;
-let particles = []; // 用于存放所有爱心粒子
+let particles = []; // 用于存放所有粒子
 
 // 错误处理函数
 function showError(message) {
@@ -20,10 +20,10 @@ function showError(message) {
 async function setupCamera() {
     if (location.protocol !== 'https:') throw new Error('摄像头功能需要安全的HTTPS环境。');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('抱歉，您的浏览器不支持摄像头功能。');
-
+    
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } });
     video.srcObject = stream;
-
+    
     return new Promise(resolve => {
         video.onloadedmetadata = () => {
             video.width = window.innerWidth;
@@ -40,6 +40,7 @@ async function setupCamera() {
  */
 async function updateAndDraw() {
     // 1. 绘制摄像头背景（镜像效果）
+    context.clearRect(0, 0, canvas.width, canvas.height); // 清除画布是必要的，放在最前面
     context.save();
     context.translate(canvas.width, 0);
     context.scale(-1, 1);
@@ -49,44 +50,50 @@ async function updateAndDraw() {
     // 2. 检测手势，并在指尖创建新的粒子
     const predictions = await model.estimateHands(video, false);
     if (predictions.length > 0) {
-        const indexFingerTip = predictions[0].landmarks[8];
+        const indexFingerTip = predictions [0].landmarks [8];
         const [x, y] = indexFingerTip;
 
-        // 在指尖位置添加一个新粒子
+        // 在指尖位置添加一个新的爱心文字粒子
         particles.push({
             x: x,
             y: y,
-            life: 40,      // 生命值，决定粒子存活多久
-            maxLife: 40,   // 最大生命值，用于计算大小和透明度
-            size: 30,      // 初始大小
+            text: '❤️', // 爱心
+            life: 40,
+            maxLife: 40,
+            size: 30,
             color: '#ff4757'
+        });
+        // 同时在稍微偏移的位置添加“毕雅雯”文字粒子
+        particles.push({
+            x: x + 20, // 向右偏移一点
+            y: y + 20, // 向下偏移一点
+            text: '毕雅雯',
+            life: 40,
+            maxLife: 40,
+            size: 20,
+            color: '#ffffff' // 白色文字
         });
     }
 
     // 3. 更新并绘制所有粒子
-    // 倒序循环，方便在循环中安全地移除元素
     for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.life--; // 生命值减少
+        const p = particles [i];
+        p.life--;
 
-        // 如果生命值耗尽，则从数组中移除该粒子
         if (p.life <= 0) {
             particles.splice(i, 1);
-            continue; // 继续下一个粒子
+            continue;
         }
 
-        // 计算当前粒子的大小和透明度
         const currentOpacity = p.life / p.maxLife;
         const currentSize = p.size * (p.life / p.maxLife);
 
-        // 设置绘制属性
         context.globalAlpha = currentOpacity;
-        context.font = `${currentSize}px Arial`;
+        context.font = `${currentSize}px sans-serif`; // 使用 sans-serif 字体
 
-        // 绘制爱心（注意：因为画布是镜像的，所以粒子的X坐标也需要镜像绘制）
-        context.fillText('❤️', canvas.width - p.x, p.y);
+        // 绘制文字
+        context.fillText(p.text, canvas.width - p.x, p.y);
     }
-    // 重置全局透明度，以免影响下一帧的背景绘制
     context.globalAlpha = 1.0;
 
     // 4. 持续循环
@@ -98,10 +105,10 @@ async function main() {
     try {
         await setupCamera();
         video.play();
-
+        
         if (typeof handpose === 'undefined') throw new Error('Handpose.js库加载失败，请检查网络或CDN链接。');
         model = await handpose.load();
-
+        
         loadingOverlay.style.opacity = '0';
         setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
 
