@@ -5,10 +5,12 @@ const context = canvas.getContext('2d');
 const loadingOverlay = document.getElementById('loading-overlay');
 const errorDisplay = document.getElementById('error-display');
 const modelLoadingIndicator = document.getElementById('model-loading-indicator');
+const timerSpan = document.getElementById('timer-span'); // 获取计时器元素
+const loadingText = document.getElementById('loading-text');
 
 let model;
 let particles = [];
-let isModelReady = false; // 新增一个标志，判断模型是否已加载完成
+let isModelReady = false;
 
 // 错误处理函数
 function showError(message) {
@@ -42,7 +44,7 @@ async function setupCamera() {
  * 核心：更新与绘制循环
  */
 async function updateAndDraw() {
-    // 1. 无论模型是否加载好，都先绘制摄像头背景
+    // 1. 绘制摄像头背景
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.translate(canvas.width, 0);
@@ -50,18 +52,33 @@ async function updateAndDraw() {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     context.restore();
 
-    // 2. 只有当模型准备好后，才执行手势识别和粒子效果
+    // 2. 只有当模型准备好后，才执行手势识别
     if (isModelReady) {
         const predictions = await model.estimateHands(video, false);
         if (predictions.length > 0) {
-            const indexFingerTip = predictions[0].landmarks[8];
-            const [x, y] = indexFingerTip;
-            const randomHue = Math.random() * 360;
-            const randomColor = `hsl(${randomHue}, 100%, 70%)`;
-            const lifeSpan = 100;
+            const landmarks = predictions[0].landmarks;
+            const thumbTip = landmarks[4]; // 大拇指指尖
+            const indexTip = landmarks[8]; // 食指指尖
 
-            particles.push({ x, y, text: '❤️', life: lifeSpan, maxLife: lifeSpan, size: 50, color: randomColor });
-            particles.push({ x: x + 25, y: y + 30, text: '毕雅雯', life: lifeSpan, maxLife: lifeSpan, size: 40, color: randomColor });
+            // --- 优化点1：计算捏合距离 ---
+            const distance = Math.sqrt(
+                Math.pow(thumbTip[0] - indexTip[0], 2) +
+                Math.pow(thumbTip[1] - indexTip[1], 2)
+            );
+
+            const pinchThreshold = 30; // 捏合距离的阈值，可以根据实际效果微调
+
+            // 如果距离小于阈值，则判断为“捏合”状态，激活画笔
+            if (distance < pinchThreshold) {
+                const midPointX = (thumbTip[0] + indexTip[0]) / 2;
+                const midPointY = (thumbTip[1] + indexTip[1]) / 2;
+                const randomHue = Math.random() * 360;
+                const randomColor = `hsl(${randomHue}, 100%, 70%)`;
+                const lifeSpan = 100;
+
+                particles.push({ x: midPointX, y: midPointY, text: '❤️', life: lifeSpan, maxLife: lifeSpan, size: 50, color: randomColor });
+                particles.push({ x: midPointX + 25, y: midPointY + 30, text: '毕雅雯', life: lifeSpan, maxLife: lifeSpan, size: 40, color: randomColor });
+            }
         }
     }
 
@@ -90,28 +107,41 @@ async function updateAndDraw() {
  * 主函数入口 (全新加载流程)
  */
 async function main() {
+    let countdownTimer;
     try {
-        // --- 第一阶段：快速启动相机并显示画面 ---
+        // --- 第一阶段：快速启动相机 ---
         await setupCamera();
         video.play();
-        // 隐藏初始的、全屏的加载动画
-        loadingOverlay.style.opacity = '0';
-        setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
-        // 开始不带手势识别的绘制循环，让用户能立刻看到自己
+        loadingText.innerText = "相机准备就绪！";
+        setTimeout(() => {
+            loadingOverlay.style.opacity = '0';
+            setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
+        }, 1000); // 显示1秒成功信息再淡出
+        
         updateAndDraw();
 
-        // --- 第二阶段：在后台加载AI模型 ---
-        modelLoadingIndicator.style.display = 'block'; // 显示一个不打扰的底部提示
+        // --- 第二阶段：在后台加载AI模型并显示读秒 ---
+        modelLoadingIndicator.style.display = 'block';
+        let timeLeft = 15; // 预估15秒加载时间
+        timerSpan.innerText = `(${timeLeft}s)`;
+        countdownTimer = setInterval(() => {
+            timeLeft--;
+            timerSpan.innerText = `(${timeLeft > 0 ? timeLeft : 0}s)`;
+            if (timeLeft <= 0) {
+                clearInterval(countdownTimer);
+            }
+        }, 1000);
+
         if (typeof handpose === 'undefined') throw new Error('Handpose.js库加载失败，请检查网络或CDN链接。');
+        model = await handpose.load({ modelType: 'lite' });
         
-        // 【关键优化点】加载轻量版(lite)模型
-        model = await handpose.load({ handposeModel: 'lite' });
-        
-        console.log("轻量版手势模型加载成功！");
-        isModelReady = true; // 设置标志位，让updateAndDraw循环开始执行手势识别
-        modelLoadingIndicator.style.display = 'none'; // 隐藏底部提示
+        // 模型加载成功，无论倒计时是否结束，都立刻进入下一步
+        clearInterval(countdownTimer); // 清除定时器
+        isModelReady = true;
+        modelLoadingIndicator.style.display = 'none';
 
     } catch (error) {
+        if(countdownTimer) clearInterval(countdownTimer); // 如果出错也要清除定时器
         showError(error.message);
     }
 }
@@ -119,7 +149,6 @@ async function main() {
 // 运行
 main();
 
-// 监听窗口大小变化
 window.addEventListener('resize', () => {
     try {
         setupCamera();
