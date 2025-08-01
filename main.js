@@ -20,10 +20,10 @@ function showError(message) {
 async function setupCamera() {
     if (location.protocol !== 'https:') throw new Error('摄像头功能需要安全的HTTPS环境。');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('抱歉，您的浏览器不支持摄像头功能。');
-    
+
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } });
     video.srcObject = stream;
-    
+
     return new Promise(resolve => {
         video.onloadedmetadata = () => {
             video.width = window.innerWidth;
@@ -40,7 +40,7 @@ async function setupCamera() {
  */
 async function updateAndDraw() {
     // 1. 绘制摄像头背景（镜像效果）
-    context.clearRect(0, 0, canvas.width, canvas.height); // 清除画布是必要的，放在最前面
+    context.clearRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.translate(canvas.width, 0);
     context.scale(-1, 1);
@@ -50,34 +50,43 @@ async function updateAndDraw() {
     // 2. 检测手势，并在指尖创建新的粒子
     const predictions = await model.estimateHands(video, false);
     if (predictions.length > 0) {
-        const indexFingerTip = predictions [0].landmarks [8];
+        const indexFingerTip = predictions[0].landmarks[8];
         const [x, y] = indexFingerTip;
 
-        // 在指尖位置添加一个新的爱心文字粒子
+        // --- 优化点2：生成随机HSL颜色 ---
+        // HSL颜色模型可以让我们轻松获得鲜艳的颜色，只需改变第一个值（色相）
+        const randomHue = Math.random() * 360; // 随机一个0到360的色相值
+        const randomColor = `hsl(${randomHue}, 100%, 70%)`; // 饱和度100%，亮度70%，确保颜色鲜亮
+
+        // --- 优化点3：延长粒子生命周期 ---
+        const lifeSpan = 100; // 粒子存活100帧，比之前的40帧长很多
+
+        // 在指尖位置添加一个新的爱心粒子
         particles.push({
             x: x,
             y: y,
-            text: '❤️', // 爱心
-            life: 40,
-            maxLife: 40,
-            size: 30,
-            color: '#ff4757'
+            text: '❤️',
+            life: lifeSpan,
+            maxLife: lifeSpan,
+            size: 50, // --- 优化点1：增加粒子大小 ---
+            color: randomColor // 使用随机生成的颜色
         });
+        
         // 同时在稍微偏移的位置添加“毕雅雯”文字粒子
         particles.push({
-            x: x + 20, // 向右偏移一点
-            y: y + 20, // 向下偏移一点
+            x: x + 25, // 偏移量也稍微调整
+            y: y + 30,
             text: '毕雅雯',
-            life: 40,
-            maxLife: 40,
-            size: 20,
-            color: '#ffffff' // 白色文字
+            life: lifeSpan,
+            maxLife: lifeSpan,
+            size: 40, // --- 优化点1：增加粒子大小 ---
+            color: randomColor // 使用与爱心相同的随机颜色
         });
     }
 
     // 3. 更新并绘制所有粒子
     for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles [i];
+        const p = particles[i];
         p.life--;
 
         if (p.life <= 0) {
@@ -88,8 +97,10 @@ async function updateAndDraw() {
         const currentOpacity = p.life / p.maxLife;
         const currentSize = p.size * (p.life / p.maxLife);
 
+        // --- 优化点2：应用粒子颜色 ---
+        context.fillStyle = p.color;
         context.globalAlpha = currentOpacity;
-        context.font = `${currentSize}px sans-serif`; // 使用 sans-serif 字体
+        context.font = `bold ${currentSize}px sans-serif`; // 字体加粗，更清晰
 
         // 绘制文字
         context.fillText(p.text, canvas.width - p.x, p.y);
@@ -105,14 +116,13 @@ async function main() {
     try {
         await setupCamera();
         video.play();
-        
+
         if (typeof handpose === 'undefined') throw new Error('Handpose.js库加载失败，请检查网络或CDN链接。');
         model = await handpose.load();
-        
+
         loadingOverlay.style.opacity = '0';
         setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
 
-        // 启动核心的更新与绘制循环
         updateAndDraw();
 
     } catch (error) {
