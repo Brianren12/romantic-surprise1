@@ -9,20 +9,7 @@
         #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #1a1a1a; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 999; transition: opacity 0.5s ease-out; }
         .spinner { width: 40px; height: 40px; border: 4px solid rgba(255, 255, 255, 0.3); border-top-color: #ff4757; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* 新增：模型加载中的提示，更小、更不打扰 */
-        #model-loading-indicator {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(0, 0, 0, 0.5);
-            color: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 14px;
-            z-index: 1001;
-            display: none; /* 默认隐藏 */
-        }
+        #model-loading-indicator { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: rgba(0, 0, 0, 0.5); color: white; padding: 8px 15px; border-radius: 20px; font-size: 14px; z-index: 1001; display: none; }
         #surprise-container { position: relative; width: 100%; height: 100%; }
         video { display: none; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
@@ -32,11 +19,11 @@
 <body>
     <div id="loading-overlay">
         <div class="spinner"></div>
-        <p style="color: white; font-size: 1rem; text-align: center;">正在准备相机... ❤️</p>
+        <p id="loading-text" style="color: white; font-size: 1rem; text-align: center;">
+            正在准备相机... ❤️
+        </p>
     </div>
-
-    <div id="model-loading-indicator">魔法手势功能加载中...</div>
-    
+    <div id="model-loading-indicator">魔法画笔加载中... <span id="timer-span"></span></div>
     <div id="error-display"></div>
     <div id="surprise-container">
         <video id="video" autoplay playsinline></video>
