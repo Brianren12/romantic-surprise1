@@ -4,9 +4,11 @@ const canvas = document.getElementById('canvas');
 const context = canvas.getContext('2d');
 const loadingOverlay = document.getElementById('loading-overlay');
 const errorDisplay = document.getElementById('error-display');
+const modelLoadingIndicator = document.getElementById('model-loading-indicator');
 
 let model;
-let particles = []; // 用于存放所有粒子
+let particles = [];
+let isModelReady = false; // 新增一个标志，判断模型是否已加载完成
 
 // 错误处理函数
 function showError(message) {
@@ -14,6 +16,7 @@ function showError(message) {
     errorDisplay.style.display = 'block';
     errorDisplay.innerText = '出错了 T_T: \n' + message;
     loadingOverlay.style.display = 'none';
+    modelLoadingIndicator.style.display = 'none';
 }
 
 // 设置并启动摄像头
@@ -39,7 +42,7 @@ async function setupCamera() {
  * 核心：更新与绘制循环
  */
 async function updateAndDraw() {
-    // 1. 绘制摄像头背景（镜像效果）
+    // 1. 无论模型是否加载好，都先绘制摄像头背景
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.save();
     context.translate(canvas.width, 0);
@@ -47,62 +50,34 @@ async function updateAndDraw() {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     context.restore();
 
-    // 2. 检测手势，并在指尖创建新的粒子
-    const predictions = await model.estimateHands(video, false);
-    if (predictions.length > 0) {
-        const indexFingerTip = predictions[0].landmarks[8];
-        const [x, y] = indexFingerTip;
+    // 2. 只有当模型准备好后，才执行手势识别和粒子效果
+    if (isModelReady) {
+        const predictions = await model.estimateHands(video, false);
+        if (predictions.length > 0) {
+            const indexFingerTip = predictions[0].landmarks[8];
+            const [x, y] = indexFingerTip;
+            const randomHue = Math.random() * 360;
+            const randomColor = `hsl(${randomHue}, 100%, 70%)`;
+            const lifeSpan = 100;
 
-        // --- 优化点2：生成随机HSL颜色 ---
-        // HSL颜色模型可以让我们轻松获得鲜艳的颜色，只需改变第一个值（色相）
-        const randomHue = Math.random() * 360; // 随机一个0到360的色相值
-        const randomColor = `hsl(${randomHue}, 100%, 70%)`; // 饱和度100%，亮度70%，确保颜色鲜亮
-
-        // --- 优化点3：延长粒子生命周期 ---
-        const lifeSpan = 100; // 粒子存活100帧，比之前的40帧长很多
-
-        // 在指尖位置添加一个新的爱心粒子
-        particles.push({
-            x: x,
-            y: y,
-            text: '❤️',
-            life: lifeSpan,
-            maxLife: lifeSpan,
-            size: 50, // --- 优化点1：增加粒子大小 ---
-            color: randomColor // 使用随机生成的颜色
-        });
-        
-        // 同时在稍微偏移的位置添加“毕雅雯”文字粒子
-        particles.push({
-            x: x + 25, // 偏移量也稍微调整
-            y: y + 30,
-            text: '毕雅雯',
-            life: lifeSpan,
-            maxLife: lifeSpan,
-            size: 40, // --- 优化点1：增加粒子大小 ---
-            color: randomColor // 使用与爱心相同的随机颜色
-        });
+            particles.push({ x, y, text: '❤️', life: lifeSpan, maxLife: lifeSpan, size: 50, color: randomColor });
+            particles.push({ x: x + 25, y: y + 30, text: '毕雅雯', life: lifeSpan, maxLife: lifeSpan, size: 40, color: randomColor });
+        }
     }
 
     // 3. 更新并绘制所有粒子
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.life--;
-
         if (p.life <= 0) {
             particles.splice(i, 1);
             continue;
         }
-
         const currentOpacity = p.life / p.maxLife;
         const currentSize = p.size * (p.life / p.maxLife);
-
-        // --- 优化点2：应用粒子颜色 ---
         context.fillStyle = p.color;
         context.globalAlpha = currentOpacity;
-        context.font = `bold ${currentSize}px sans-serif`; // 字体加粗，更清晰
-
-        // 绘制文字
+        context.font = `bold ${currentSize}px sans-serif`;
         context.fillText(p.text, canvas.width - p.x, p.y);
     }
     context.globalAlpha = 1.0;
@@ -111,19 +86,30 @@ async function updateAndDraw() {
     requestAnimationFrame(updateAndDraw);
 }
 
-// 主函数入口
+/**
+ * 主函数入口 (全新加载流程)
+ */
 async function main() {
     try {
+        // --- 第一阶段：快速启动相机并显示画面 ---
         await setupCamera();
         video.play();
-
-        if (typeof handpose === 'undefined') throw new Error('Handpose.js库加载失败，请检查网络或CDN链接。');
-        model = await handpose.load();
-
+        // 隐藏初始的、全屏的加载动画
         loadingOverlay.style.opacity = '0';
         setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
-
+        // 开始不带手势识别的绘制循环，让用户能立刻看到自己
         updateAndDraw();
+
+        // --- 第二阶段：在后台加载AI模型 ---
+        modelLoadingIndicator.style.display = 'block'; // 显示一个不打扰的底部提示
+        if (typeof handpose === 'undefined') throw new Error('Handpose.js库加载失败，请检查网络或CDN链接。');
+        
+        // 【关键优化点】加载轻量版(lite)模型
+        model = await handpose.load({ handposeModel: 'lite' });
+        
+        console.log("轻量版手势模型加载成功！");
+        isModelReady = true; // 设置标志位，让updateAndDraw循环开始执行手势识别
+        modelLoadingIndicator.style.display = 'none'; // 隐藏底部提示
 
     } catch (error) {
         showError(error.message);
